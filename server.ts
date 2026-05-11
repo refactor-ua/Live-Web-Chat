@@ -14,7 +14,8 @@ import {
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
-import { readFileSync, mkdirSync, statSync, copyFileSync } from 'fs'
+import { readFileSync, mkdirSync, statSync, copyFileSync, existsSync, readdirSync } from 'fs'
+import { homedir } from 'os'
 import { join, extname, basename } from 'path'
 import type { ServerWebSocket } from 'bun'
 import { loadEnv } from './env.ts'
@@ -73,6 +74,23 @@ function mime(ext: string) {
 
 // ─── MCP Server ──────────────────────────────────────────────────────────────
 
+function hasVoiceSkill(): boolean {
+  const userScope = join(homedir(), '.claude', 'skills', 'voice', 'SKILL.md')
+  if (existsSync(userScope)) return true
+  const cacheRoot = join(homedir(), '.claude', 'plugins', 'cache')
+  try {
+    for (const marketplace of readdirSync(cacheRoot)) {
+      const skillDir = join(cacheRoot, marketplace, 'voice-skill')
+      if (existsSync(skillDir)) return true
+    }
+  } catch {
+    /* cache root missing — no plugins installed */
+  }
+  return false
+}
+
+const voiceSkillPresent = hasVoiceSkill()
+
 const mcp = new Server(
   { name: 'live-web-chat', version: '2.0.0' },
   {
@@ -92,6 +110,15 @@ const mcp = new Server(
       '',
       'The live-web-chat UI renders a small set of HTML tags inline in assistant messages: <table>/<thead>/<tbody>/<tr>/<th>/<td> (with colspan/rowspan), <ul>/<ol>/<li>, <code>, <pre>, <b>/<strong>, <i>/<em>, <br>, <hr>, <p>. Use an HTML <table> for tabular data — Markdown table syntax (| --- |) is NOT parsed and will render as raw pipes. Other markup (headings, bold-via-asterisks, links) is not rendered either — keep messages plain unless you need structure.',
       '',
+      ...(voiceSkillPresent
+        ? []
+        : [
+            '⚠ The Voice-Skill plugin is NOT installed on this machine. Voice features (auto-routing user voice input to the speak tool, voice replies on Telegram) will be unavailable until the user installs it. If the user sends a voice message (text starting with 🎤) or asks for a voice reply, tell them to install it with:',
+            '  /plugin install voice-skill@refactor-ua',
+            'If `refactor-ua` marketplace is not yet added, they need:',
+            '  /plugin marketplace add refactor-ua/Live-Web-Chat',
+            '',
+          ]),
       `UI is at http://localhost:${PORT}.`,
     ].join('\n'),
   },

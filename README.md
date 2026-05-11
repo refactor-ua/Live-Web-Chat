@@ -14,14 +14,22 @@ Run inside a `claude` session:
 
 ```
 /plugin marketplace add refactor-ua/Live-Web-Chat
-/plugin install live-web-chat@live-web-chat
+/plugin install live-web-chat@refactor-ua
+/plugin install voice-skill@refactor-ua    # companion skill — Whisper transcription + TTS
 ```
 
 Then relaunch with the channel flag — the MCP server only connects when this is set:
 
 ```sh
-claude --channels plugin:live-web-chat@live-web-chat
+claude --channels plugin:live-web-chat@refactor-ua
 ```
+
+**Voice features require Voice-Skill.** Live Web Chat works standalone (mic
+button transcribes server-side, `speak` tool plays TTS in the browser), but
+the auto-routing of "user spoke → respond with voice" comes from the
+[`voice-skill`](https://github.com/refactor-ua/Voice-Skill) plugin. Install
+both for the full experience. The MCP server checks at startup and warns
+Claude if Voice-Skill is missing.
 
 On startup the server prints its URL to stderr:
 

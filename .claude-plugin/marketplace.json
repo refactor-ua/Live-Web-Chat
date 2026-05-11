@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "live-web-chat",
-  "description": "Live Web Chat — localhost browser chat for Claude Code with voice (Whisper + OpenAI TTS), structured permission preview, and inline HTML rendering. Forked from anthropics/claude-plugins-official#fakechat and maintained independently.",
+  "name": "refactor-ua",
+  "description": "refactor-ua Claude Code plugins — Live Web Chat (localhost browser chat with voice) and Voice-Skill (Whisper/TTS for Telegram and Live Web Chat).",
   "owner": {
     "name": "refactor-ua"
   },
@@ -14,6 +14,19 @@
       },
       "category": "development",
       "source": "."
+    },
+    {
+      "name": "voice-skill",
+      "description": "Voice message handling skill — Whisper transcription and OpenAI TTS for Telegram voice messages and Live Web Chat. Companion plugin to live-web-chat for the full voice flow.",
+      "author": {
+        "name": "refactor-ua"
+      },
+      "category": "development",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/refactor-ua/Voice-Skill.git",
+        "path": "."
+      }
     }
   ]
 }
