@@ -1,0 +1,15 @@
+{
+  "name": "live-web-chat",
+  "description": "Localhost web chat for Claude Code with mic-button voice (Whisper STT + OpenAI TTS), structured permission preview, and inline HTML rendering in assistant messages. Forked from anthropics/claude-plugins-official#fakechat.",
+  "version": "1.0.0",
+  "keywords": [
+    "live-web-chat",
+    "voice",
+    "whisper",
+    "tts",
+    "web",
+    "localhost",
+    "channel",
+    "mcp"
+  ]
+}

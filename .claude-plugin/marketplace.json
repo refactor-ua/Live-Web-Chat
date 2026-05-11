@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "live-web-chat",
+  "description": "Live Web Chat — localhost browser chat for Claude Code with voice (Whisper + OpenAI TTS), structured permission preview, and inline HTML rendering. Forked from anthropics/claude-plugins-official#fakechat and maintained independently.",
+  "owner": {
+    "name": "refactor-ua"
+  },
+  "plugins": [
+    {
+      "name": "live-web-chat",
+      "description": "Localhost web chat for Claude Code with mic-button voice (Whisper STT + OpenAI TTS), structured permission preview, and inline HTML rendering in assistant messages.",
+      "author": {
+        "name": "refactor-ua"
+      },
+      "category": "development",
+      "source": "."
+    }
+  ]
+}

@@ -1,0 +1,1823 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Web Chat</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1720;
+    --surface: #162030;
+    --surface2: #1a2332;
+    --text: #e2e8f0;
+    --hint: #b0c4d8;
+    --primary: #0d9488;
+    --primary-light: #14b8a6;
+    --border: rgba(255,255,255,0.15);
+    --error: #f87171;
+    --success: #22c55e;
+    --radius: 12px;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    z-index: 10;
+  }
+
+  .status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--error);
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .status-dot.connected { background: var(--success); }
+
+  .header-title {
+    font-weight: 600;
+    font-size: 15px;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mode-select {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 8px;
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+    max-width: 160px;
+  }
+  .mode-select:focus { border-color: var(--primary); }
+
+  .btn-icon {
+    background: none;
+    border: none;
+    color: var(--hint);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 8px;
+    font-size: 18px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s;
+    flex-shrink: 0;
+  }
+  .btn-icon:hover { background: var(--surface2); color: var(--text); }
+
+  /* ── Messages ── */
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    scroll-behavior: smooth;
+  }
+
+  .messages::-webkit-scrollbar { width: 4px; }
+  .messages::-webkit-scrollbar-track { background: transparent; }
+  .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .msg-row {
+    display: flex;
+    flex-direction: column;
+    max-width: 75%;
+  }
+  .msg-row.user { align-self: flex-end; align-items: flex-end; }
+  .msg-row.claude { align-self: flex-start; align-items: flex-start; }
+  .msg-row.system { align-self: center; align-items: center; max-width: 100%; }
+
+  .msg-bubble {
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+
+  .msg-row.user .msg-bubble {
+    background: var(--primary);
+    color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+
+  .msg-row.claude .msg-bubble {
+    background: var(--surface2);
+    color: var(--text);
+    border-bottom-left-radius: 4px;
+  }
+
+  .msg-row.system .msg-bubble {
+    background: transparent;
+    color: var(--hint);
+    font-size: 12px;
+    text-align: center;
+  }
+
+  .msg-voice { font-style: italic; }
+
+  .msg-ts {
+    font-size: 11px;
+    color: var(--hint);
+    margin-top: 4px;
+    padding: 0 4px;
+  }
+
+  .msg-img {
+    max-width: 240px;
+    max-height: 180px;
+    border-radius: 8px;
+    display: block;
+    margin-top: 6px;
+    cursor: pointer;
+  }
+
+  .msg-file-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--primary-light);
+    text-decoration: none;
+    margin-top: 6px;
+    font-size: 13px;
+  }
+  .msg-file-link:hover { text-decoration: underline; }
+
+  /* ── HTML content in assistant messages ── */
+  .msg-bubble table {
+    border-collapse: collapse;
+    margin: 6px 0;
+    font-size: 13px;
+    max-width: 100%;
+  }
+  .msg-bubble th, .msg-bubble td {
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  .msg-bubble th {
+    background: rgba(255, 255, 255, 0.05);
+    font-weight: 600;
+  }
+  .msg-bubble pre {
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 6px 0;
+    overflow-x: auto;
+    font-size: 12.5px;
+    font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+    white-space: pre;
+  }
+  .msg-bubble code {
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+    font-size: 12.5px;
+  }
+  .msg-bubble pre code {
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+  }
+  .msg-bubble ul, .msg-bubble ol {
+    margin: 4px 0 4px 20px;
+    padding: 0;
+  }
+  .msg-bubble li { margin: 2px 0; }
+  .msg-bubble hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 8px 0;
+  }
+  .msg-bubble p { margin: 4px 0; }
+  .msg-bubble p:first-child { margin-top: 0; }
+  .msg-bubble p:last-child { margin-bottom: 0; }
+
+  /* ── Permission popup overlay ── */
+  .permission-overlay {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 60vh;
+    overflow-y: auto;
+    pointer-events: none;
+  }
+
+  .permission-card {
+    pointer-events: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 24px 28px;
+    width: 480px;
+    max-width: 92vw;
+    box-shadow: 0 12px 48px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.25);
+    backdrop-filter: blur(16px);
+    animation: permSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .permission-card.dismissed {
+    animation: permSlideOut 0.25s cubic-bezier(0.55, 0, 1, 0.45) forwards;
+  }
+
+  @keyframes permSlideIn {
+    from { opacity: 0; transform: translateY(40px) scale(0.92); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  @keyframes permSlideOut {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to { opacity: 0; transform: translateY(-20px) scale(0.95); }
+  }
+
+  .permission-tool {
+    font-weight: 700;
+    font-size: 18px;
+    margin-bottom: 6px;
+    color: var(--primary-light);
+  }
+
+  .permission-desc {
+    color: var(--hint);
+    font-size: 15px;
+    margin-bottom: 12px;
+    line-height: 1.4;
+  }
+
+  .permission-preview {
+    background: var(--surface2);
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--hint);
+    font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 220px;
+    overflow-y: auto;
+    margin-bottom: 14px;
+    line-height: 1.5;
+  }
+
+  .permission-section-label {
+    font-size: 10px;
+    color: var(--hint);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 6px 2px;
+    opacity: 0.7;
+  }
+
+  .permission-cmd-line {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .permission-cmd-line + .permission-cmd-line {
+    margin-top: 2px;
+  }
+  .permission-cmd-prefix {
+    color: var(--primary-light);
+    font-weight: 700;
+    flex-shrink: 0;
+    user-select: none;
+    min-width: 22px;
+    text-align: right;
+  }
+  .permission-cmd-text {
+    color: var(--text);
+    flex: 1;
+    overflow-wrap: anywhere;
+  }
+
+  .permission-desc-toggle {
+    color: var(--primary-light);
+    cursor: pointer;
+    font-weight: 600;
+    user-select: none;
+    white-space: nowrap;
+    margin-left: 4px;
+  }
+  .permission-desc-toggle:hover { text-decoration: underline; }
+
+  .permission-kv {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 16px;
+    row-gap: 4px;
+    align-items: start;
+  }
+  .permission-kv-key {
+    color: var(--primary-light);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .permission-kv-value {
+    color: var(--text);
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    min-width: 0;
+  }
+
+  .permission-timer {
+    height: 8px;
+    background: var(--border);
+    border-radius: 4px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+
+  .permission-timer-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--success), var(--primary-light));
+    border-radius: 4px;
+    width: 100%;
+    transition: width linear;
+  }
+
+  .permission-countdown {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--primary-light);
+    text-align: center;
+    margin-bottom: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .permission-actions {
+    display: flex;
+    gap: 10px;
+  }
+
+  .btn-allow, .btn-deny {
+    flex: 1;
+    padding: 12px 16px;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  .btn-allow:active, .btn-deny:active { transform: scale(0.97); }
+  .btn-allow { background: var(--success); color: #fff; }
+  .btn-deny { background: var(--error); color: #fff; }
+  .btn-allow:disabled, .btn-deny:disabled { opacity: 0.5; cursor: default; }
+  .permission-result {
+    font-size: 15px;
+    font-weight: 700;
+    text-align: center;
+    padding: 10px;
+  }
+  .permission-result.allowed { color: var(--success); }
+  .permission-result.denied { color: var(--error); }
+
+  /* ── Input bar ── */
+  .input-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .textarea-wrap {
+    flex: 1;
+    position: relative;
+  }
+
+  .msg-input {
+    width: 100%;
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 9px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: none;
+    outline: none;
+    min-height: 40px;
+    max-height: 120px;
+    overflow-y: auto;
+    line-height: 1.4;
+    transition: border-color 0.15s;
+  }
+  .msg-input:focus { border-color: var(--primary); }
+  .msg-input::placeholder { color: var(--hint); }
+
+  .btn-send, .btn-attach {
+    background: none;
+    border: none;
+    color: var(--hint);
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 8px;
+    font-size: 20px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s;
+    flex-shrink: 0;
+    align-self: flex-end;
+    margin-bottom: 2px;
+  }
+  .btn-send:hover, .btn-attach:hover { background: var(--surface2); color: var(--text); }
+  .btn-send:disabled { opacity: 0.3; cursor: default; }
+  .btn-send.active { color: var(--primary); }
+
+  .btn-mic {
+    background: none;
+    border: none;
+    color: var(--hint);
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 8px;
+    font-size: 20px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s;
+    flex-shrink: 0;
+    align-self: flex-end;
+    margin-bottom: 2px;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .btn-mic:hover { background: var(--surface2); }
+
+  .btn-mic.recording {
+    background: var(--error) !important;
+    color: #fff !important;
+    animation: pulse-record 0.8s ease-in-out infinite alternate;
+  }
+
+  .btn-mic.listening {
+    background: var(--primary) !important;
+    color: #fff !important;
+    animation: pulse-listen 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-record {
+    from { box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.5); }
+    to { box-shadow: 0 0 0 8px rgba(248, 113, 113, 0); }
+  }
+
+  @keyframes pulse-listen {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(13, 148, 136, 0); }
+  }
+
+  /* ── Drop overlay ── */
+  .drop-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(13, 148, 136, 0.18);
+    border: 3px dashed var(--primary);
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--primary-light);
+    z-index: 100;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .drop-overlay.visible { opacity: 1; }
+
+  /* ── Settings panel ── */
+  .settings-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 200;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .settings-overlay.open { opacity: 1; pointer-events: all; }
+
+  /* ── Permission history panel ── */
+  .perm-history-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 340px;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    z-index: 202;
+    transform: translateX(100%);
+    transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+    overflow: hidden;
+  }
+  .perm-history-panel.open { transform: translateX(0); }
+
+  .perm-history-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .perm-history-list::-webkit-scrollbar { width: 4px; }
+
+  .perm-history-item {
+    padding: 12px 14px;
+    background: var(--surface2);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .perm-history-tool {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text);
+  }
+
+  .perm-history-desc {
+    font-size: 12px;
+    color: var(--hint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .perm-history-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    margin-top: 2px;
+  }
+
+  .perm-history-status {
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+  }
+  .perm-history-status.allowed { background: rgba(52,199,89,0.15); color: var(--success); }
+  .perm-history-status.denied { background: rgba(255,59,48,0.15); color: var(--error); }
+  .perm-history-status.auto { background: rgba(90,200,250,0.15); color: var(--primary-light); }
+
+  .perm-history-time { color: var(--hint); }
+
+  .perm-history-empty {
+    text-align: center;
+    color: var(--hint);
+    padding: 40px 16px;
+    font-size: 14px;
+  }
+
+  .perm-badge {
+    position: relative;
+  }
+  .perm-badge-count {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: var(--primary-light);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+  }
+  .perm-badge-count:empty { display: none; }
+
+  .settings-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 300px;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    z-index: 201;
+    transform: translateX(100%);
+    transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+    overflow: hidden;
+  }
+  .settings-panel.open { transform: translateX(0); }
+
+  .settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .settings-title { font-weight: 700; font-size: 15px; }
+
+  .settings-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .settings-body::-webkit-scrollbar { width: 4px; }
+  .settings-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .setting-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .setting-label {
+    font-size: 12px;
+    color: var(--hint);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .setting-select, .setting-input {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+    outline: none;
+    width: 100%;
+    transition: border-color 0.15s;
+  }
+  .setting-select:focus, .setting-input:focus { border-color: var(--primary); }
+
+  .setting-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    background: var(--surface2);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  .setting-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--primary);
+    cursor: pointer;
+  }
+  .range-val { font-size: 12px; color: var(--hint); text-align: right; }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .toggle-label {
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .toggle {
+    width: 42px;
+    height: 24px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--hint);
+    transition: transform 0.2s, background 0.2s;
+  }
+  .toggle.on {
+    background: var(--primary);
+    border-color: var(--primary);
+  }
+  .toggle.on::after {
+    transform: translateX(18px);
+    background: #fff;
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js"></script>
+</head>
+<body>
+
+<!-- Drop overlay -->
+<div class="drop-overlay" id="dropOverlay">Drop files here</div>
+<div class="permission-overlay" id="permOverlay"></div>
+
+<!-- Header -->
+<div class="header">
+  <div class="status-dot" id="statusDot"></div>
+  <div class="header-title">Live Web Chat</div>
+  <select class="mode-select" id="modeSelect">
+    <option value="off">Off</option>
+    <option value="ptt">Push-to-Talk</option>
+    <option value="confirmation">Confirmation ▾</option>
+    <option value="on_completion">On Completion</option>
+    <option value="always">Always Listen</option>
+  </select>
+  <button class="btn-icon perm-badge" id="btnPermHistory" title="Permission history">🛡<span class="perm-badge-count" id="permBadge"></span></button>
+  <button class="btn-icon" id="btnSettings" title="Settings">⚙</button>
+</div>
+
+<!-- Messages -->
+<div class="messages" id="messages"></div>
+
+<!-- Input bar -->
+<div class="input-bar">
+  <button class="btn-attach" id="btnAttach" title="Attach file">📎</button>
+  <input type="file" id="fileInput" multiple style="display:none">
+  <div class="textarea-wrap">
+    <textarea class="msg-input" id="msgInput" placeholder="Message..." rows="1"></textarea>
+  </div>
+  <button class="btn-mic" id="btnMic" title="Record voice">🎤</button>
+  <button class="btn-send" id="btnSend" title="Send" disabled>➤</button>
+</div>
+
+<!-- Settings overlay + panel -->
+<div class="settings-overlay" id="settingsOverlay"></div>
+<div class="settings-panel" id="settingsPanel">
+  <div class="settings-header">
+    <span class="settings-title">Settings</span>
+    <button class="btn-icon" id="btnCloseSettings">✕</button>
+  </div>
+  <div class="settings-body">
+    <div class="setting-row">
+      <label class="setting-label" for="setLanguage">Language</label>
+      <select class="setting-select" id="setLanguage">
+        <option value="uk">Ukrainian (uk)</option>
+        <option value="en">English (en)</option>
+        <option value="auto">Auto-detect</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <label class="setting-label" for="setVoice">TTS Voice</label>
+      <select class="setting-select" id="setVoice">
+        <option value="nova">Nova</option>
+        <option value="alloy">Alloy</option>
+        <option value="echo">Echo</option>
+        <option value="fable">Fable</option>
+        <option value="onyx">Onyx</option>
+        <option value="shimmer">Shimmer</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <label class="setting-label" for="setSpeed">TTS Speed <span class="range-val" id="speedVal">1.0</span></label>
+      <input type="range" class="setting-range" id="setSpeed" min="0.5" max="2" step="0.1" value="1">
+    </div>
+    <div class="setting-row">
+      <label class="setting-label" for="setWhisperPrompt">Whisper Prompt</label>
+      <textarea class="setting-input" id="setWhisperPrompt" rows="2" style="resize:vertical;font-size:12px;width:100%;box-sizing:border-box;" placeholder="Контекстна підказка для Whisper..."></textarea>
+    </div>
+    <div class="setting-row">
+      <label class="setting-label" for="setSileroPos">Speech Threshold <span class="range-val" id="sileroPosVal">0.8</span></label>
+      <input type="range" class="setting-range" id="setSileroPos" min="0.5" max="0.99" step="0.05" value="0.8">
+    </div>
+    <div class="setting-row">
+      <label class="setting-label" for="setSileroNeg">Silence Threshold <span class="range-val" id="sileroNegVal">0.4</span></label>
+      <input type="range" class="setting-range" id="setSileroNeg" min="0.1" max="0.8" step="0.05" value="0.4">
+    </div>
+    <div class="setting-row">
+      <label class="setting-label" for="setSileroRedemption">Pause Tolerance <span class="range-val" id="sileroRedVal">15</span></label>
+      <input type="range" class="setting-range" id="setSileroRedemption" min="5" max="40" step="1" value="15">
+    </div>
+    <div class="toggle-row">
+      <span class="toggle-label">TTS Enabled</span>
+      <div class="toggle on" id="togTtsEnabled" data-key="ttsEnabled"></div>
+    </div>
+    <div class="toggle-row">
+      <span class="toggle-label">Speak permissions</span>
+      <div class="toggle on" id="togTtsOnPermission" data-key="ttsOnPermission"></div>
+    </div>
+    <div class="toggle-row">
+      <span class="toggle-label">Speak replies</span>
+      <div class="toggle" id="togTtsOnReply" data-key="ttsOnReply"></div>
+    </div>
+    <div class="toggle-row">
+      <span class="toggle-label">Auto-allow all permissions</span>
+      <div class="toggle" id="togAutoAllow" data-key="autoAllowAll"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── Utils ───────────────────────────────────────────────────────────────────
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function formatTime(d) {
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function isImageName(name) {
+  return /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(name)
+}
+
+// Whitelist-based HTML sanitizer for assistant messages. Claude Code is
+// generally trusted but a crafted prompt could still slip <script> or
+// event-handler attrs into a reply — strip anything not on the allowlist.
+const ALLOWED_TAGS = new Set([
+  'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TH', 'TD',
+  'UL', 'OL', 'LI',
+  'B', 'STRONG', 'I', 'EM',
+  'CODE', 'PRE',
+  'BR', 'HR', 'P',
+])
+const ALLOWED_ATTRS = new Set(['colspan', 'rowspan', 'class'])
+const HTML_TAG_PATTERN = /<(table|thead|tbody|tfoot|tr|th|td|ul|ol|li|b|strong|i|em|code|pre|br|hr|p)\b[^>]*>/i
+
+function looksLikeHtml(text) {
+  return HTML_TAG_PATTERN.test(text)
+}
+
+function sanitizeHtml(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  function walk(node) {
+    for (const child of Array.from(node.children)) {
+      if (!ALLOWED_TAGS.has(child.tagName)) {
+        node.replaceChild(document.createTextNode(child.textContent), child)
+      } else {
+        for (const attr of Array.from(child.attributes)) {
+          if (!ALLOWED_ATTRS.has(attr.name.toLowerCase())) child.removeAttribute(attr.name)
+        }
+        walk(child)
+      }
+    }
+  }
+  walk(doc.body)
+  return doc.body.innerHTML
+}
+
+// ─── DOM refs ────────────────────────────────────────────────────────────────
+
+const statusDot = document.getElementById('statusDot')
+const modeSelect = document.getElementById('modeSelect')
+const messagesEl = document.getElementById('messages')
+const msgInput = document.getElementById('msgInput')
+const btnSend = document.getElementById('btnSend')
+const btnMic = document.getElementById('btnMic')
+const btnAttach = document.getElementById('btnAttach')
+const fileInput = document.getElementById('fileInput')
+const btnSettings = document.getElementById('btnSettings')
+const btnCloseSettings = document.getElementById('btnCloseSettings')
+const settingsOverlay = document.getElementById('settingsOverlay')
+const settingsPanel = document.getElementById('settingsPanel')
+const dropOverlay = document.getElementById('dropOverlay')
+
+// Message tracking for edits and quote-replies
+const msgs = {}
+
+// Settings inputs
+const setLanguage = document.getElementById('setLanguage')
+const setVoice = document.getElementById('setVoice')
+const setSpeed = document.getElementById('setSpeed')
+const speedVal = document.getElementById('speedVal')
+const setWhisperPrompt = document.getElementById('setWhisperPrompt')
+const setSileroPos = document.getElementById('setSileroPos')
+const sileroPosVal = document.getElementById('sileroPosVal')
+const setSileroNeg = document.getElementById('setSileroNeg')
+const sileroNegVal = document.getElementById('sileroNegVal')
+const setSileroRedemption = document.getElementById('setSileroRedemption')
+const sileroRedVal = document.getElementById('sileroRedVal')
+const togTtsEnabled = document.getElementById('togTtsEnabled')
+const togTtsOnPermission = document.getElementById('togTtsOnPermission')
+const togTtsOnReply = document.getElementById('togTtsOnReply')
+const togAutoAllow = document.getElementById('togAutoAllow')
+
+// ─── WebSocket ───────────────────────────────────────────────────────────────
+
+let ws = null
+let wsRetryTimer = null
+
+function connectWS() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return
+  const url = `ws://${location.host}/ws`
+  ws = new WebSocket(url)
+  ws.binaryType = 'arraybuffer'
+
+  ws.onopen = () => {
+    clearTimeout(wsRetryTimer)
+    statusDot.classList.add('connected')
+    addSystemMsg('Connected')
+  }
+
+  ws.onclose = () => {
+    statusDot.classList.remove('connected')
+    addSystemMsg('Disconnected — reconnecting…')
+    stopVAD()
+    wsRetryTimer = setTimeout(connectWS, 2000)
+  }
+
+  ws.onerror = () => {
+    // onclose will fire after onerror
+  }
+
+  ws.onmessage = (ev) => {
+    handleServerMsg(ev.data)
+  }
+}
+
+function wsSend(data) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return
+  ws.send(typeof data === 'string' || data instanceof ArrayBuffer ? data : JSON.stringify(data))
+}
+
+// ─── Message rendering ────────────────────────────────────────────────────────
+
+function addSystemMsg(text) {
+  const row = document.createElement('div')
+  row.className = 'msg-row system'
+  const bubble = document.createElement('div')
+  bubble.className = 'msg-bubble'
+  bubble.textContent = text
+  row.appendChild(bubble)
+  messagesEl.appendChild(row)
+  scrollToBottom()
+}
+
+function addMessage({ from, text, source, files }) {
+  const row = document.createElement('div')
+  row.className = `msg-row ${from}`
+
+  const bubble = document.createElement('div')
+  bubble.className = 'msg-bubble'
+
+  // Text content
+  if (text) {
+    const span = document.createElement('span')
+    if (source === 'voice') {
+      span.className = 'msg-voice'
+      span.textContent = '🎤 ' + text
+    } else if (from === 'claude' && looksLikeHtml(text)) {
+      span.innerHTML = sanitizeHtml(text)
+    } else {
+      span.textContent = text
+    }
+    bubble.appendChild(span)
+  }
+
+  // Files
+  if (files && files.length) {
+    for (const f of files) {
+      if (f.isImage || isImageName(f.name)) {
+        const img = document.createElement('img')
+        img.className = 'msg-img'
+        img.src = f.id ? `/files/${encodeURIComponent(f.id)}` : f.src || ''
+        img.alt = escHtml(f.name || 'image')
+        img.loading = 'lazy'
+        img.onclick = () => window.open(img.src, '_blank')
+        bubble.appendChild(img)
+      } else {
+        const a = document.createElement('a')
+        a.className = 'msg-file-link'
+        a.href = f.id ? `/files/${encodeURIComponent(f.id)}` : f.src || '#'
+        a.target = '_blank'
+        a.textContent = '📄 ' + (f.name || f.id || 'file')
+        bubble.appendChild(a)
+      }
+    }
+  }
+
+  row.appendChild(bubble)
+
+  const ts = document.createElement('div')
+  ts.className = 'msg-ts'
+  ts.textContent = formatTime(new Date())
+  row.appendChild(ts)
+
+  messagesEl.appendChild(row)
+  scrollToBottom()
+  return row
+}
+
+const permOverlay = document.getElementById('permOverlay')
+
+const PERM_TIMEOUT_MS = 5000
+
+// Split a bash command on top-level &&, ||, ;, | (respecting quotes) so each
+// step renders on its own line in the permission preview.
+function splitBashCommand(cmd) {
+  const steps = []
+  let current = ''
+  let pendingOp = null
+  let inSingle = false
+  let inDouble = false
+  let i = 0
+
+  function flush() {
+    const trimmed = current.trim()
+    if (trimmed) steps.push({ op: pendingOp, text: trimmed })
+    current = ''
+  }
+
+  while (i < cmd.length) {
+    const c = cmd[i]
+    const next = cmd[i + 1]
+
+    if (c === '\\' && i + 1 < cmd.length) {
+      current += c + cmd[i + 1]
+      i += 2
+      continue
+    }
+    if (!inDouble && c === "'") { inSingle = !inSingle; current += c; i++; continue }
+    if (!inSingle && c === '"') { inDouble = !inDouble; current += c; i++; continue }
+
+    if (!inSingle && !inDouble) {
+      if (c === '&' && next === '&') { flush(); pendingOp = '&&'; i += 2; continue }
+      if (c === '|' && next === '|') { flush(); pendingOp = '||'; i += 2; continue }
+      if (c === ';') { flush(); pendingOp = ';'; i++; continue }
+      if (c === '|') { flush(); pendingOp = '|'; i++; continue }
+    }
+
+    current += c
+    i++
+  }
+  flush()
+  return steps
+}
+
+// Built-in tool descriptions can be many lines of agent-facing docs. Show
+// only the first sentence (or 140 chars) and let the user expand on demand.
+function truncateDescription(text) {
+  if (!text || text.length <= 140) return { short: text || '', full: null }
+  const sentenceMatch = text.slice(0, 200).match(/^[\s\S]*?[.!?](?=\s|$)/)
+  let cutoff
+  if (sentenceMatch && sentenceMatch[0].length >= 30) {
+    cutoff = sentenceMatch[0].length
+  } else {
+    const nl = text.indexOf('\n')
+    cutoff = (nl > 30 && nl <= 180) ? nl : 140
+  }
+  return { short: text.slice(0, cutoff).trim() + '…', full: text }
+}
+
+// Flat key/value renderer — avoids re-encoding string values (regex patterns,
+// paths, prompts) into JSON-escaped form, which is unreadable for humans.
+function renderKeyValue(obj) {
+  const wrap = document.createElement('div')
+  wrap.className = 'permission-kv'
+  for (const [key, value] of Object.entries(obj)) {
+    const k = document.createElement('span')
+    k.className = 'permission-kv-key'
+    k.textContent = key
+    const v = document.createElement('span')
+    v.className = 'permission-kv-value'
+    if (value === null || value === undefined) {
+      v.textContent = String(value)
+    } else if (typeof value === 'string') {
+      v.textContent = value
+    } else if (typeof value === 'object') {
+      v.textContent = JSON.stringify(value, null, 2)
+    } else {
+      v.textContent = String(value)
+    }
+    wrap.appendChild(k)
+    wrap.appendChild(v)
+  }
+  return wrap
+}
+
+function renderPermissionInput(toolName, inputPreview) {
+  const wrap = document.createElement('div')
+
+  const label = document.createElement('div')
+  label.className = 'permission-section-label'
+  label.textContent = toolName === 'Bash' ? 'COMMAND' : 'INPUT'
+  wrap.appendChild(label)
+
+  const body = document.createElement('div')
+  body.className = 'permission-preview'
+
+  let parsed = null
+  try { parsed = JSON.parse(inputPreview) } catch {}
+
+  if (parsed && toolName === 'Bash' && typeof parsed.command === 'string') {
+    const steps = splitBashCommand(parsed.command)
+    steps.forEach((step, i) => {
+      const line = document.createElement('div')
+      line.className = 'permission-cmd-line'
+      const prefix = document.createElement('span')
+      prefix.className = 'permission-cmd-prefix'
+      prefix.textContent = i === 0 ? '$' : step.op
+      const text = document.createElement('span')
+      text.className = 'permission-cmd-text'
+      text.textContent = step.text
+      line.appendChild(prefix)
+      line.appendChild(text)
+      body.appendChild(line)
+    })
+  } else if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    body.appendChild(renderKeyValue(parsed))
+  } else if (parsed) {
+    body.textContent = JSON.stringify(parsed, null, 2)
+  } else {
+    body.textContent = inputPreview
+  }
+
+  wrap.appendChild(body)
+  return wrap
+}
+
+function addPermissionRequest({ id, tool_name, description, input_preview }) {
+  const card = document.createElement('div')
+  card.className = 'permission-card'
+  card.dataset.reqId = id
+
+  const toolEl = document.createElement('div')
+  toolEl.className = 'permission-tool'
+  toolEl.textContent = tool_name
+
+  const descEl = document.createElement('div')
+  descEl.className = 'permission-desc'
+  const { short, full } = truncateDescription(description)
+  if (full) {
+    const span = document.createElement('span')
+    span.textContent = short + ' '
+    const toggle = document.createElement('span')
+    toggle.className = 'permission-desc-toggle'
+    toggle.textContent = '▸ детальніше'
+    let expanded = false
+    toggle.onclick = () => {
+      expanded = !expanded
+      span.textContent = (expanded ? full : short) + ' '
+      toggle.textContent = expanded ? '▾ менше' : '▸ детальніше'
+    }
+    descEl.appendChild(span)
+    descEl.appendChild(toggle)
+  } else {
+    descEl.textContent = description
+  }
+
+  const preview = renderPermissionInput(tool_name, input_preview)
+
+  // Timer bar
+  const timerWrap = document.createElement('div')
+  timerWrap.className = 'permission-timer'
+  const timerBar = document.createElement('div')
+  timerBar.className = 'permission-timer-bar'
+  timerWrap.appendChild(timerBar)
+
+  const countdown = document.createElement('div')
+  countdown.className = 'permission-countdown'
+  countdown.textContent = 'Auto-allow in 5s'
+
+  const actions = document.createElement('div')
+  actions.className = 'permission-actions'
+
+  const btnAllow = document.createElement('button')
+  btnAllow.className = 'btn-allow'
+  btnAllow.textContent = 'Allow'
+
+  const btnDeny = document.createElement('button')
+  btnDeny.className = 'btn-deny'
+  btnDeny.textContent = 'Deny'
+
+  let timer = null
+  let countdownInterval = null
+  let responded = false
+
+  function clearTimers() {
+    if (timer) { clearTimeout(timer); timer = null }
+    if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null }
+  }
+
+  function respond(allow) {
+    if (responded) return
+    responded = true
+    clearTimers()
+    btnAllow.disabled = true
+    btnDeny.disabled = true
+    wsSend({ type: 'permission_response', id, allow })
+    card.classList.add('dismissed')
+    card.addEventListener('animationend', () => card.remove())
+  }
+
+  btnAllow.onclick = () => respond(true)
+  btnDeny.onclick = () => respond(false)
+
+  actions.appendChild(btnAllow)
+  actions.appendChild(btnDeny)
+
+  card.appendChild(toolEl)
+  card.appendChild(descEl)
+  card.appendChild(preview)
+  card.appendChild(timerWrap)
+  card.appendChild(countdown)
+  card.appendChild(actions)
+
+  permOverlay.appendChild(card)
+
+  // Start countdown
+  const startTime = Date.now()
+  requestAnimationFrame(() => {
+    timerBar.style.transitionDuration = PERM_TIMEOUT_MS + 'ms'
+    timerBar.style.width = '0%'
+  })
+
+  countdownInterval = setInterval(() => {
+    const left = Math.max(0, Math.ceil((PERM_TIMEOUT_MS - (Date.now() - startTime)) / 1000))
+    countdown.textContent = `Auto-allow in ${left}s`
+  }, 250)
+
+  timer = setTimeout(() => respond(true), PERM_TIMEOUT_MS)
+}
+
+function scrollToBottom() {
+  messagesEl.scrollTop = messagesEl.scrollHeight
+}
+
+// ─── Server message handler ───────────────────────────────────────────────────
+
+function handleServerMsg(raw) {
+  let msg
+  try {
+    msg = JSON.parse(raw)
+  } catch {
+    return
+  }
+
+  switch (msg.type) {
+    case 'config':
+      applyConfig(msg.config)
+      break
+
+    case 'msg': {
+      // live-web-chat wire: { type:'msg', id, from, text, ts, replyTo, file }
+      const who = msg.from === 'user' ? 'user' : 'claude'
+      const row = addMessage({ from: who, text: msg.text, source: msg.text?.startsWith('🎤') ? 'voice' : 'text' })
+      // Handle file attachment
+      if (msg.file) {
+        const bubble = row.querySelector('.msg-bubble')
+        if (isImageName(msg.file.name)) {
+          const img = document.createElement('img')
+          img.className = 'msg-img'
+          img.src = msg.file.url
+          img.alt = escHtml(msg.file.name)
+          img.loading = 'lazy'
+          img.onclick = () => window.open(img.src, '_blank')
+          bubble.appendChild(img)
+        } else {
+          const a = document.createElement('a')
+          a.className = 'msg-file-link'
+          a.href = msg.file.url
+          a.target = '_blank'
+          a.download = msg.file.name
+          a.textContent = '📄 ' + msg.file.name
+          bubble.appendChild(a)
+        }
+      }
+      if (msg.id) msgs[msg.id] = row
+      break
+    }
+    case 'edit': {
+      // { type:'edit', id, text }
+      const target = msgs[msg.id]
+      if (target) {
+        const span = target.querySelector('.msg-bubble span')
+        if (span) span.textContent = msg.text + ' (edited)'
+      }
+      break
+    }
+
+    case 'message': {
+      const row = addMessage(msg)
+      // no ID to track from voice-channel message format
+      break
+    }
+
+    case 'permission_request':
+      addPermissionRequest(msg)
+      break
+
+    case 'permission_auto_allowed':
+      // silently auto-allowed, no UI needed
+      break
+
+    case 'audio': {
+      const bytes = Uint8Array.from(atob(msg.data), c => c.charCodeAt(0))
+      const blob = new Blob([bytes], { type: msg.mime || 'audio/mpeg' })
+      const url = URL.createObjectURL(blob)
+      enqueueAudio(url)
+      break
+    }
+
+    case 'status':
+      handleStatus(msg)
+      break
+
+    case 'error':
+      addSystemMsg('⚠ ' + (msg.message || 'Unknown error'))
+      break
+  }
+}
+
+function handleStatus(msg) {
+  if (msg.action === 'activate_mic' || msg.listening === true) {
+    const mode = modeSelect.value
+    if (mode === 'always') {
+      startVAD()
+    } else if (mode === 'confirmation' || mode === 'on_completion') {
+      startVAD(true) // one-shot
+    }
+    btnMic.classList.add('listening')
+  } else if (msg.listening === false) {
+    stopVAD()
+    btnMic.classList.remove('listening')
+  }
+}
+
+// ─── Config application ───────────────────────────────────────────────────────
+
+function applyConfig(cfg) {
+  if (!cfg) return
+
+  if (cfg.mode !== undefined) {
+    modeSelect.value = cfg.mode
+    if (cfg.mode === 'always') startVAD()
+    else stopVAD()
+  }
+  if (cfg.language !== undefined) setLanguage.value = cfg.language
+  if (cfg.ttsVoice !== undefined) setVoice.value = cfg.ttsVoice
+  if (cfg.ttsSpeed !== undefined) {
+    setSpeed.value = cfg.ttsSpeed
+    speedVal.textContent = Number(cfg.ttsSpeed).toFixed(1)
+  }
+  if (cfg.whisperPrompt !== undefined) setWhisperPrompt.value = cfg.whisperPrompt
+  if (cfg.sileroPositiveThreshold !== undefined) {
+    setSileroPos.value = cfg.sileroPositiveThreshold
+    sileroPosVal.textContent = Number(cfg.sileroPositiveThreshold).toFixed(2)
+  }
+  if (cfg.sileroNegativeThreshold !== undefined) {
+    setSileroNeg.value = cfg.sileroNegativeThreshold
+    sileroNegVal.textContent = Number(cfg.sileroNegativeThreshold).toFixed(2)
+  }
+  if (cfg.sileroRedemptionFrames !== undefined) {
+    setSileroRedemption.value = cfg.sileroRedemptionFrames
+    sileroRedVal.textContent = cfg.sileroRedemptionFrames
+  }
+
+  if (cfg.ttsEnabled !== undefined) setToggle(togTtsEnabled, cfg.ttsEnabled)
+  if (cfg.ttsOnPermission !== undefined) setToggle(togTtsOnPermission, cfg.ttsOnPermission)
+  if (cfg.ttsOnReply !== undefined) setToggle(togTtsOnReply, cfg.ttsOnReply)
+  if (cfg.autoAllowAll !== undefined) setToggle(togAutoAllow, cfg.autoAllowAll)
+}
+
+// ─── Toggle helpers ───────────────────────────────────────────────────────────
+
+function setToggle(el, val) {
+  if (val) el.classList.add('on')
+  else el.classList.remove('on')
+}
+
+function isToggleOn(el) {
+  return el.classList.contains('on')
+}
+
+function bindToggle(el) {
+  el.addEventListener('click', () => {
+    el.classList.toggle('on')
+    const key = el.dataset.key
+    if (key) wsSend({ type: 'settings', settings: { [key]: isToggleOn(el) } })
+  })
+}
+
+bindToggle(togTtsEnabled)
+bindToggle(togTtsOnPermission)
+bindToggle(togTtsOnReply)
+bindToggle(togAutoAllow)
+
+// ─── Settings panel ───────────────────────────────────────────────────────────
+
+function openSettings() {
+  settingsOverlay.classList.add('open')
+  settingsPanel.classList.add('open')
+}
+function closeSettings() {
+  settingsOverlay.classList.remove('open')
+  settingsPanel.classList.remove('open')
+}
+
+btnSettings.onclick = openSettings
+btnCloseSettings.onclick = closeSettings
+settingsOverlay.onclick = closeSettings
+
+setLanguage.addEventListener('change', () => wsSend({ type: 'settings', settings: { language: setLanguage.value } }))
+setVoice.addEventListener('change', () => wsSend({ type: 'settings', settings: { ttsVoice: setVoice.value } }))
+setSpeed.addEventListener('input', () => {
+  speedVal.textContent = Number(setSpeed.value).toFixed(1)
+  wsSend({ type: 'settings', settings: { ttsSpeed: Number(setSpeed.value) } })
+})
+setWhisperPrompt.addEventListener('change', () => {
+  wsSend({ type: 'settings', settings: { whisperPrompt: setWhisperPrompt.value } })
+})
+setSileroPos.addEventListener('input', () => {
+  sileroPosVal.textContent = Number(setSileroPos.value).toFixed(2)
+  wsSend({ type: 'settings', settings: { sileroPositiveThreshold: Number(setSileroPos.value) } })
+})
+setSileroNeg.addEventListener('input', () => {
+  sileroNegVal.textContent = Number(setSileroNeg.value).toFixed(2)
+  wsSend({ type: 'settings', settings: { sileroNegativeThreshold: Number(setSileroNeg.value) } })
+})
+setSileroRedemption.addEventListener('input', () => {
+  sileroRedVal.textContent = setSileroRedemption.value
+  wsSend({ type: 'settings', settings: { sileroRedemptionFrames: Number(setSileroRedemption.value) } })
+})
+
+// ─── Mode selector ────────────────────────────────────────────────────────────
+
+modeSelect.addEventListener('change', () => {
+  const mode = modeSelect.value
+  wsSend({ type: 'settings', settings: { mode } })
+  if (mode === 'always') startVAD()
+  else stopVAD()
+})
+
+// ─── Text input & send ────────────────────────────────────────────────────────
+
+msgInput.addEventListener('input', () => {
+  // Auto-grow
+  msgInput.style.height = 'auto'
+  msgInput.style.height = Math.min(msgInput.scrollHeight, 120) + 'px'
+  btnSend.disabled = msgInput.value.trim() === ''
+  if (msgInput.value.trim()) btnSend.classList.add('active')
+  else btnSend.classList.remove('active')
+})
+
+msgInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    sendText()
+  }
+})
+
+btnSend.addEventListener('click', sendText)
+
+function sendText() {
+  const text = msgInput.value.trim()
+  if (!text) return
+  wsSend({ type: 'text', text })
+  addMessage({ from: 'user', text, source: 'text' })
+  msgInput.value = ''
+  msgInput.style.height = 'auto'
+  btnSend.disabled = true
+  btnSend.classList.remove('active')
+}
+
+// ─── File upload ──────────────────────────────────────────────────────────────
+
+btnAttach.addEventListener('click', () => fileInput.click())
+
+fileInput.addEventListener('change', () => {
+  Array.from(fileInput.files || []).forEach(sendFile)
+  fileInput.value = ''
+})
+
+function sendFile(file) {
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    const base64 = e.target.result.split(',')[1]
+    wsSend({ type: 'file', name: file.name, data: base64, caption: '' })
+  }
+  reader.readAsDataURL(file)
+}
+
+// ─── Drag and drop ────────────────────────────────────────────────────────────
+
+document.body.addEventListener('dragover', (e) => {
+  e.preventDefault()
+  dropOverlay.classList.add('visible')
+})
+
+document.body.addEventListener('dragleave', (e) => {
+  if (e.relatedTarget === null) {
+    dropOverlay.classList.remove('visible')
+  }
+})
+
+document.body.addEventListener('drop', (e) => {
+  e.preventDefault()
+  dropOverlay.classList.remove('visible')
+  const files = e.dataTransfer?.files
+  if (files) Array.from(files).forEach(sendFile)
+})
+
+// ─── Paste ────────────────────────────────────────────────────────────────────
+
+document.addEventListener('paste', (e) => {
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (const item of items) {
+    if (item.kind === 'file') {
+      const file = item.getAsFile()
+      if (file) sendFile(file)
+    }
+  }
+})
+
+// ─── Voice recording ─────────────────────────────────────────────────────────
+
+let mediaRecorder = null
+let micStream = null
+
+async function getMicStream() {
+  if (micStream && micStream.active) return micStream
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  return micStream
+}
+
+function getMimeType() {
+  const preferred = 'audio/webm;codecs=opus'
+  return MediaRecorder.isTypeSupported(preferred) ? preferred : ''
+}
+
+// Detach event handlers before reusing the slot — prevents a stale recorder's
+// final dataavailable/stop from leaking into the next recording's buffer.
+function detachRecorder(rec) {
+  if (!rec) return
+  rec.ondataavailable = null
+  rec.onstop = null
+  rec.onerror = null
+  if (rec.state !== 'inactive') {
+    try { rec.stop() } catch {}
+  }
+}
+
+async function startRecording() {
+  try {
+    detachRecorder(mediaRecorder)
+    const stream = await getMicStream()
+    const opts = {}
+    const mime = getMimeType()
+    if (mime) opts.mimeType = mime
+    const recorder = new MediaRecorder(stream, opts)
+    const chunks = []
+    recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) chunks.push(e.data)
+    }
+    recorder.onstop = async () => {
+      if (chunks.length === 0) return
+      const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
+      if (blob.size < 1000) return  // skip tiny blobs (TTS echo, clicks)
+      const ab = await blob.arrayBuffer()
+      wsSend(ab)
+    }
+    recorder.start(100)
+    mediaRecorder = recorder
+    btnMic.classList.add('recording')
+    btnMic.classList.remove('listening')
+  } catch (err) {
+    addSystemMsg('⚠ Microphone error: ' + err.message)
+  }
+}
+
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop()
+  }
+  btnMic.classList.remove('recording')
+}
+
+// PTT mode: mousedown/mouseup
+btnMic.addEventListener('mousedown', (e) => {
+  e.preventDefault()
+  if (modeSelect.value === 'ptt') startRecording()
+})
+
+btnMic.addEventListener('mouseup', () => {
+  if (modeSelect.value === 'ptt') stopRecording()
+})
+
+btnMic.addEventListener('mouseleave', () => {
+  if (modeSelect.value === 'ptt' && mediaRecorder?.state === 'recording') stopRecording()
+})
+
+// Touch support for PTT
+btnMic.addEventListener('touchstart', (e) => {
+  e.preventDefault()
+  if (modeSelect.value === 'ptt') startRecording()
+}, { passive: false })
+
+btnMic.addEventListener('touchend', (e) => {
+  e.preventDefault()
+  if (modeSelect.value === 'ptt') stopRecording()
+})
+
+// Toggle recording for non-PTT modes
+btnMic.addEventListener('click', (e) => {
+  if (modeSelect.value === 'ptt') return // handled by mousedown/up
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    stopRecording()
+    stopVAD()
+  } else {
+    startRecording()
+  }
+})
+
+// ─── Audio playback queue ───────────────────────────────────────────────────
+
+const audioQueue = []
+let audioPlaying = false
+let audioUnlocked = false
+let unlockBanner = null
+
+// First user gesture grants the document autoplay permission for the session.
+function unlockAudio() {
+  if (audioUnlocked) return
+  audioUnlocked = true
+  if (unlockBanner) { unlockBanner.remove(); unlockBanner = null }
+  if (audioQueue.length > 0 && !audioPlaying) playNext()
+}
+;['pointerdown', 'click', 'touchstart', 'keydown'].forEach(evt =>
+  document.addEventListener(evt, unlockAudio, { once: false, passive: true })
+)
+
+function showUnlockBanner() {
+  if (unlockBanner) return
+  unlockBanner = document.createElement('div')
+  unlockBanner.className = 'msg-row system'
+  unlockBanner.innerHTML = '<div class="msg-bubble" style="cursor:pointer;color:var(--primary-light)">🔇 Натисни, щоб увімкнути озвучку</div>'
+  unlockBanner.querySelector('.msg-bubble').onclick = unlockAudio
+  messagesEl.appendChild(unlockBanner)
+  scrollToBottom()
+}
+
+function enqueueAudio(url) {
+  audioQueue.push(url)
+  if (!audioUnlocked) { showUnlockBanner(); return }
+  if (!audioPlaying) playNext()
+}
+
+function playNext() {
+  if (audioQueue.length === 0) { audioPlaying = false; return }
+  audioPlaying = true
+  const url = audioQueue.shift()
+  const audio = new Audio(url)
+  audio.onended = () => { URL.revokeObjectURL(url); playNext() }
+  audio.onerror = (e) => {
+    console.warn('live-web-chat: audio error', e)
+    URL.revokeObjectURL(url)
+    playNext()
+  }
+  audio.play().catch((err) => {
+    console.warn('live-web-chat: autoplay blocked', err.message)
+    // Re-queue at head, drop unlock flag, prompt user; next gesture drains it.
+    audioQueue.unshift(url)
+    audioPlaying = false
+    audioUnlocked = false
+    showUnlockBanner()
+  })
+}
+
+// ─── VAD (Silero Voice Activity Detection) ──────────────────────────────────
+
+let vadInstance = null
+let vadActive = false
+let vadOneShotMode = false
+
+async function startVAD(oneShot = false) {
+  if (vadActive) return
+  vadOneShotMode = oneShot
+
+  try {
+    vadActive = true
+    btnMic.classList.add('listening')
+
+    vadInstance = await vad.MicVAD.new({
+      ort,
+      positiveSpeechThreshold: Number(setSileroPos.value) || 0.8,
+      negativeSpeechThreshold: Number(setSileroNeg.value) || 0.4,
+      minSpeechFrames: 5,
+      preSpeechPadFrames: 10,
+      redemptionFrames: Number(setSileroRedemption.value) || 15,
+      onSpeechStart: () => {
+        if (!vadActive) return
+        btnMic.classList.add('recording')
+        btnMic.classList.remove('listening')
+        startRecording()
+      },
+      onSpeechEnd: () => {
+        if (!vadActive) return
+        btnMic.classList.remove('recording')
+        btnMic.classList.add('listening')
+        stopRecording()
+        if (vadOneShotMode) {
+          stopVAD()
+        }
+      },
+    })
+
+    vadInstance.start()
+  } catch (err) {
+    vadActive = false
+    btnMic.classList.remove('listening')
+    addSystemMsg('⚠ VAD error: ' + err.message)
+  }
+}
+
+function stopVAD() {
+  vadActive = false
+  if (vadInstance) {
+    try { vadInstance.destroy() } catch {}
+    vadInstance = null
+  }
+  btnMic.classList.remove('listening')
+  btnMic.classList.remove('recording')
+}
+
+// Keyboard shortcut: Escape closes settings
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeSettings()
+})
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+
+connectWS()
+</script>
+</body>
+</html>
