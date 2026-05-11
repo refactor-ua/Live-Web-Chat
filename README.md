@@ -1,8 +1,8 @@
 # Live Web Chat
 
 Localhost browser chat for [Claude Code](https://claude.com/claude-code) with
-voice (Whisper STT + OpenAI TTS), structured permission previews, file uploads,
-and inline HTML rendering in assistant messages.
+voice (Whisper STT + OpenAI/Groq TTS), structured permission previews, file
+uploads, and inline HTML rendering in assistant messages.
 
 Forked from [`anthropics/claude-plugins-official#external_plugins/fakechat`](https://github.com/anthropics/claude-plugins-official/tree/main/external_plugins/fakechat)
 at commit `7994c270` and maintained independently.
@@ -25,10 +25,12 @@ Open <http://localhost:8787>. Type. Claude replies in the browser.
 | --- | --- | --- |
 | [Claude Code](https://claude.com/claude-code) | the host CLI | `npm i -g @anthropic-ai/claude-code` |
 | [Bun](https://bun.sh) ≥ 1.0 | plugin runtime (TypeScript) | <https://bun.sh/docs/installation> |
-| OpenAI API key | only for voice (STT + TTS) | <https://platform.openai.com/api-keys> |
+| OpenAI API key | voice (default provider) | <https://platform.openai.com/api-keys> |
+| Groq API key *(optional)* | alt voice provider | <https://console.groq.com/keys> |
 
-Voice is **optional** — without an `OPENAI_API_KEY` the chat still works (text
-only). The mic button and `speak` tool will fail with a clear error.
+Voice is **optional** — without an `OPENAI_API_KEY` (or `GROQ_API_KEY` if you
+opt into Groq) the chat still works (text only). The mic button and `speak`
+tool will fail with a clear error.
 
 ## Install
 
@@ -60,10 +62,10 @@ live-web-chat: http://localhost:8787
 
 Open it in any browser. One tab, one user, no auth.
 
-## OpenAI key for voice
+## API keys for voice
 
-Put your key in a `.env` file inside the installed plugin directory. The plugin
-lives at:
+Put your key(s) in a `.env` file inside the installed plugin directory. The
+plugin lives at:
 
 ```
 ~/.claude/plugins/cache/refactor-ua/live-web-chat/<version>/
@@ -73,12 +75,42 @@ Create `.env` there:
 
 ```
 OPENAI_API_KEY=sk-...
+# optional, only if you want to use Groq:
+GROQ_API_KEY=gsk-...
+VOICE_PROVIDER=openai          # openai (default) | groq
 ```
 
 (See `.env.example` for the format.)
 
 A reinstall via `/plugin update` re-extracts the directory, so back up your
 `.env` if you reinstall.
+
+### Switching to Groq
+
+Both Whisper transcription and TTS honour the `VOICE_PROVIDER` env var.
+
+| Provider | Transcription | TTS | Best for |
+| --- | --- | --- | --- |
+| `openai` *(default)* | `whisper-1` | `tts-1` / `tts-1-hd` (Nova/Onyx speak Ukrainian) | Ukrainian voice replies; broad language coverage. |
+| `groq` | `whisper-large-v3-turbo` (faster + cheaper than OpenAI Whisper) | `playai-tts` (English-only voices) | Fast transcription; English-only TTS — PlayAI does **not** speak Ukrainian. |
+
+To switch, set `VOICE_PROVIDER=groq` in `.env` (or the shell) and provide
+`GROQ_API_KEY`. The UI's `ttsVoice` config stays the same — if it's an OpenAI
+voice (`nova`, etc.) while `VOICE_PROVIDER=groq`, the server transparently falls
+back to `Arista-PlayAI` and logs a stderr warning. To pick a specific Groq
+voice, change `ttsVoice` in the Settings panel to one of:
+`Arista-PlayAI`, `Atlas-PlayAI`, `Basil-PlayAI`, `Briggs-PlayAI`,
+`Calum-PlayAI`, `Celeste-PlayAI`, `Cheyenne-PlayAI`, `Chip-PlayAI`,
+`Cillian-PlayAI`, `Deedee-PlayAI`, `Fritz-PlayAI`, `Gail-PlayAI`,
+`Indigo-PlayAI`, `Mamaw-PlayAI`, `Mason-PlayAI`, `Mikail-PlayAI`,
+`Mitch-PlayAI`, `Quinn-PlayAI`, `Thunder-PlayAI`.
+
+Optional model overrides via env: `VOICE_TRANSCRIBE_MODEL`, `VOICE_TTS_MODEL`.
+The `speed` config is ignored on Groq (PlayAI doesn't support it).
+
+**Recommended for Ukrainian users:** keep `VOICE_PROVIDER=openai` (so TTS
+speaks Ukrainian). If you want fast cheap transcription only, you'd need to
+fork the plugin — there is no per-call provider switch in the UI right now.
 
 ## Windows launcher (`.bat`)
 
@@ -148,7 +180,9 @@ The server hasn't started yet (Claude does `bun install` on first launch — can
 take 10–20 s). Refresh.
 
 **Mic button gives "TTS failed" or transcription error.**
-`OPENAI_API_KEY` is missing or invalid. Check the `.env` in the plugin dir.
+The active provider's API key (`OPENAI_API_KEY` by default, `GROQ_API_KEY` if
+`VOICE_PROVIDER=groq`) is missing or invalid. Check the `.env` in the plugin
+dir.
 
 **Port 8787 busy.**
 The server auto-kills stale Claude/bun instances on that port; if it can't,
@@ -165,7 +199,8 @@ The chat only connects with that flag.
 - Single browser tab, single user.
 - No persisted history — a reload starts fresh.
 - Inbox/outbox files persist on disk under `~/.claude/channels/live-web-chat/`.
-- If you set `OPENAI_API_KEY`, voice data goes to OpenAI's Whisper/TTS APIs.
+- If you set `OPENAI_API_KEY` (or `GROQ_API_KEY`), voice data goes to the
+  corresponding provider's Whisper/TTS APIs.
 
 This is a developer tool, not a messaging bridge.
 
