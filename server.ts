@@ -108,6 +108,10 @@ const mcp = new Server(
       '',
       'Use the reply tool to send text responses (supports quote-reply and file attachments). Use the speak tool to send text that should be read aloud via TTS. Use edit_message to update a previously sent message.',
       '',
+      'Voice & speed: do NOT pass voice/speed params to speak unless the user explicitly asks for a one-off override (e.g. comparing voices). The plugin honors the user\'s configured TTS Voice and TTS Speed from Settings, and any explicit param overrides that preference for that call. Default is "trust user config" — just send text. Same for tts.py in adjacent skills.',
+      '',
+      'If the user\'s "Speak replies" toggle is on in Settings, every plain `reply` already gets auto-TTS\'d server-side — so a separate `speak` call would double-voice the same text. Only call `speak` explicitly when you need audio AND the user has Speak replies off, or for permission prompts where text alone is insufficient.',
+      '',
       'The live-web-chat UI renders a small set of HTML tags inline in assistant messages: <table>/<thead>/<tbody>/<tr>/<th>/<td> (with colspan/rowspan), <ul>/<ol>/<li>, <code>, <pre>, <b>/<strong>, <i>/<em>, <br>, <hr>, <p>. Use an HTML <table> for tabular data — Markdown table syntax (| --- |) is NOT parsed and will render as raw pipes. Other markup (headings, bold-via-asterisks, links) is not rendered either — keep messages plain unless you need structure.',
       '',
       ...(voiceSkillPresent
@@ -221,13 +225,13 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'speak',
-      description: 'Convert text to speech and play it in the browser. Use when you want the user to hear your response as audio.',
+      description: 'Convert text to speech and play it in the browser. Use when you want the user to hear your response as audio. By default omit voice and speed — the plugin uses the user-configured TTS Voice and Speed from Settings. Only pass voice/speed for a one-off override the user explicitly requested (e.g. "speak this in fable" or comparing voices). Note: if the user has the "Speak replies" toggle on, plain `reply` already auto-TTSs — calling `speak` on the same text would double-voice it.',
       inputSchema: {
         type: 'object',
         properties: {
           text: { type: 'string', description: 'Text to synthesize and speak aloud.' },
-          voice: { type: 'string', description: 'TTS voice (nova/alloy/echo/fable/onyx/shimmer).' },
-          speed: { type: 'number', description: 'Speech speed 0.25–4.0.' },
+          voice: { type: 'string', description: 'TTS voice (nova/alloy/echo/fable/onyx/shimmer). Omit unless the user explicitly asked for a specific voice on this call — otherwise the plugin uses the user\'s configured TTS Voice from Settings.' },
+          speed: { type: 'number', description: 'Speech speed 0.25–4.0. Omit unless the user explicitly asked for a specific speed — otherwise the plugin uses the user\'s configured TTS Speed.' },
         },
         required: ['text'],
       },

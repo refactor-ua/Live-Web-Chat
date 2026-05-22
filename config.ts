@@ -21,6 +21,7 @@ export type Config = {
   sileroPositiveThreshold: number
   sileroNegativeThreshold: number
   sileroRedemptionFrames: number
+  quietPeakThreshold: number
   autoAllowAll: boolean
   port: number
 }
@@ -37,6 +38,7 @@ const DEFAULTS: Config = {
   sileroPositiveThreshold: 0.8,
   sileroNegativeThreshold: 0.4,
   sileroRedemptionFrames: 15,
+  quietPeakThreshold: 0.05,
   autoAllowAll: false,
   port: 8787,
 }

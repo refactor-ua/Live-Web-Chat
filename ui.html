@@ -860,6 +860,10 @@
       <label class="setting-label" for="setSileroRedemption">Pause Tolerance <span class="range-val" id="sileroRedVal">15</span></label>
       <input type="range" class="setting-range" id="setSileroRedemption" min="5" max="40" step="1" value="15">
     </div>
+    <div class="setting-row">
+      <label class="setting-label" for="setQuietPeak">Quiet Filter <span class="range-val" id="quietPeakVal">0.05</span></label>
+      <input type="range" class="setting-range" id="setQuietPeak" min="0" max="0.3" step="0.01" value="0.05">
+    </div>
     <div class="toggle-row">
       <span class="toggle-label">TTS Enabled</span>
       <div class="toggle on" id="togTtsEnabled" data-key="ttsEnabled"></div>
@@ -965,6 +969,8 @@ const setSileroNeg = document.getElementById('setSileroNeg')
 const sileroNegVal = document.getElementById('sileroNegVal')
 const setSileroRedemption = document.getElementById('setSileroRedemption')
 const sileroRedVal = document.getElementById('sileroRedVal')
+const setQuietPeak = document.getElementById('setQuietPeak')
+const quietPeakVal = document.getElementById('quietPeakVal')
 const togTtsEnabled = document.getElementById('togTtsEnabled')
 const togTtsOnPermission = document.getElementById('togTtsOnPermission')
 const togTtsOnReply = document.getElementById('togTtsOnReply')
@@ -1330,7 +1336,11 @@ function handleServerMsg(raw) {
     case 'msg': {
       // live-web-chat wire: { type:'msg', id, from, text, ts, replyTo, file }
       const who = msg.from === 'user' ? 'user' : 'claude'
-      const row = addMessage({ from: who, text: msg.text, source: msg.text?.startsWith('🎤') ? 'voice' : 'text' })
+      // Server may prefix transcribed voice text with 🎤 — strip it so addMessage's
+      // voice-source branch can prepend its own, avoiding a double-mic bubble.
+      const isVoice = msg.text?.startsWith('🎤')
+      const cleanText = isVoice ? msg.text.replace(/^🎤\s*/, '') : msg.text
+      const row = addMessage({ from: who, text: cleanText, source: isVoice ? 'voice' : 'text' })
       // Handle file attachment
       if (msg.file) {
         const bubble = row.querySelector('.msg-bubble')
@@ -1441,6 +1451,10 @@ function applyConfig(cfg) {
     setSileroRedemption.value = cfg.sileroRedemptionFrames
     sileroRedVal.textContent = cfg.sileroRedemptionFrames
   }
+  if (cfg.quietPeakThreshold !== undefined) {
+    setQuietPeak.value = cfg.quietPeakThreshold
+    quietPeakVal.textContent = Number(cfg.quietPeakThreshold).toFixed(2)
+  }
 
   if (cfg.ttsEnabled !== undefined) setToggle(togTtsEnabled, cfg.ttsEnabled)
   if (cfg.ttsOnPermission !== undefined) setToggle(togTtsOnPermission, cfg.ttsOnPermission)
@@ -1507,6 +1521,10 @@ setSileroNeg.addEventListener('input', () => {
 setSileroRedemption.addEventListener('input', () => {
   sileroRedVal.textContent = setSileroRedemption.value
   wsSend({ type: 'settings', settings: { sileroRedemptionFrames: Number(setSileroRedemption.value) } })
+})
+setQuietPeak.addEventListener('input', () => {
+  quietPeakVal.textContent = Number(setQuietPeak.value).toFixed(2)
+  wsSend({ type: 'settings', settings: { quietPeakThreshold: Number(setQuietPeak.value) } })
 })
 
 // ─── Mode selector ────────────────────────────────────────────────────────────
@@ -1605,6 +1623,85 @@ document.addEventListener('paste', (e) => {
 let mediaRecorder = null
 let micStream = null
 
+// Quiet-filter: tap mic stream with AnalyserNode during recording, track peak
+// amplitude in time domain. If peak stays below the user-set threshold, hold
+// the blob and show a banner with manual "Send anyway / Discard" actions
+// instead of auto-submitting — Whisper hallucinates fixed phrases (e.g.
+// "До зустрічі!", "Субтитрувальниця…") on near-silent audio.
+let vuAudioCtx = null
+let vuAnalyser = null
+let vuTimer = null
+let vuPeak = 0
+
+function startVUMeter(stream) {
+  vuPeak = 0
+  try {
+    vuAudioCtx = new (window.AudioContext || window.webkitAudioContext)()
+    const src = vuAudioCtx.createMediaStreamSource(stream)
+    vuAnalyser = vuAudioCtx.createAnalyser()
+    vuAnalyser.fftSize = 1024
+    src.connect(vuAnalyser)
+    const buf = new Float32Array(vuAnalyser.fftSize)
+    vuTimer = setInterval(() => {
+      vuAnalyser.getFloatTimeDomainData(buf)
+      let m = 0
+      for (let i = 0; i < buf.length; i++) {
+        const v = Math.abs(buf[i])
+        if (v > m) m = v
+      }
+      if (m > vuPeak) vuPeak = m
+    }, 50)
+  } catch (e) {
+    // Non-fatal: if we can't measure, treat as loud and let it through.
+    vuPeak = 1
+  }
+}
+
+function stopVUMeter() {
+  if (vuTimer) { clearInterval(vuTimer); vuTimer = null }
+  if (vuAudioCtx) {
+    try { vuAudioCtx.close() } catch {}
+    vuAudioCtx = null
+  }
+  vuAnalyser = null
+  return vuPeak
+}
+
+function showQuietBanner(blob, peak, threshold) {
+  const row = document.createElement('div')
+  row.className = 'msg-row system'
+  const bubble = document.createElement('div')
+  bubble.className = 'msg-bubble'
+  bubble.style.display = 'flex'
+  bubble.style.flexDirection = 'column'
+  bubble.style.gap = '8px'
+  const text = document.createElement('div')
+  text.textContent = `🔇 Тихий запис (пік ${peak.toFixed(3)} < поріг ${threshold.toFixed(2)}). Whisper може галюцинувати.`
+  bubble.appendChild(text)
+  const btnRow = document.createElement('div')
+  btnRow.style.display = 'flex'
+  btnRow.style.gap = '8px'
+  const sendBtn = document.createElement('button')
+  sendBtn.textContent = '📨 Відправити все одно'
+  sendBtn.style.cssText = 'padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:13px'
+  sendBtn.onclick = async () => {
+    sendBtn.disabled = true
+    const ab = await blob.arrayBuffer()
+    wsSend(ab)
+    row.remove()
+  }
+  const discardBtn = document.createElement('button')
+  discardBtn.textContent = '🗑 Відкинути'
+  discardBtn.style.cssText = 'padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:13px'
+  discardBtn.onclick = () => row.remove()
+  btnRow.appendChild(sendBtn)
+  btnRow.appendChild(discardBtn)
+  bubble.appendChild(btnRow)
+  row.appendChild(bubble)
+  messagesEl.appendChild(row)
+  scrollToBottom()
+}
+
 async function getMicStream() {
   if (micStream && micStream.active) return micStream
   micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -1631,7 +1728,9 @@ function detachRecorder(rec) {
 async function startRecording() {
   try {
     detachRecorder(mediaRecorder)
+    stopVUMeter()  // reset any leftover state
     const stream = await getMicStream()
+    startVUMeter(stream)
     const opts = {}
     const mime = getMimeType()
     if (mime) opts.mimeType = mime
@@ -1641,9 +1740,15 @@ async function startRecording() {
       if (e.data && e.data.size > 0) chunks.push(e.data)
     }
     recorder.onstop = async () => {
+      const peak = stopVUMeter()
       if (chunks.length === 0) return
       const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
       if (blob.size < 1000) return  // skip tiny blobs (TTS echo, clicks)
+      const threshold = Number(setQuietPeak.value) || 0
+      if (threshold > 0 && peak < threshold) {
+        showQuietBanner(blob, peak, threshold)
+        return
+      }
       const ab = await blob.arrayBuffer()
       wsSend(ab)
     }
@@ -1652,6 +1757,7 @@ async function startRecording() {
     btnMic.classList.add('recording')
     btnMic.classList.remove('listening')
   } catch (err) {
+    stopVUMeter()
     addSystemMsg('⚠ Microphone error: ' + err.message)
   }
 }
