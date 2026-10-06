@@ -176,6 +176,28 @@
   }
   .msg-file-link:hover { text-decoration: underline; }
 
+  .msg-video {
+    display: block;
+    width: 100%;
+    max-width: 420px;
+    max-height: 320px;
+    border-radius: 8px;
+    margin-top: 6px;
+    background: #000;
+  }
+  .msg-audio {
+    display: block;
+    width: 100%;
+    max-width: 420px;
+    margin-top: 6px;
+  }
+  .msg-file-caption {
+    display: block;
+    font-size: 12px;
+    color: var(--hint);
+    margin-top: 2px;
+  }
+
   /* ── HTML content in assistant messages ── */
   .msg-bubble table {
     border-collapse: collapse;
@@ -902,6 +924,60 @@ function formatTime(d) {
 function isImageName(name) {
   return /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(name)
 }
+function isVideoName(name) {
+  return /\.(mp4|webm|mov|m4v)$/i.test(name)
+}
+function isAudioName(name) {
+  return /\.(mp3|wav|m4a|ogg|oga|opus)$/i.test(name)
+}
+
+// Render one assistant attachment ({url, name}) into a message bubble:
+// image → <img>, video → <video controls>, audio → <audio controls>, else a link.
+function appendAttachment(bubble, f) {
+  if (!f || !f.url) return
+  const name = f.name || 'file'
+  if (isImageName(name)) {
+    const img = document.createElement('img')
+    img.className = 'msg-img'
+    img.src = f.url
+    img.alt = escHtml(name)
+    img.loading = 'lazy'
+    img.onclick = () => window.open(img.src, '_blank')
+    bubble.appendChild(img)
+  } else if (isVideoName(name)) {
+    const v = document.createElement('video')
+    v.className = 'msg-video'
+    v.src = f.url
+    v.controls = true
+    v.preload = 'metadata'
+    v.playsInline = true
+    bubble.appendChild(v)
+  } else if (isAudioName(name)) {
+    const a = document.createElement('audio')
+    a.className = 'msg-audio'
+    a.src = f.url
+    a.controls = true
+    a.preload = 'metadata'
+    bubble.appendChild(a)
+  } else {
+    const a = document.createElement('a')
+    a.className = 'msg-file-link'
+    a.href = f.url
+    a.target = '_blank'
+    a.download = name
+    a.textContent = '📄 ' + name
+    bubble.appendChild(a)
+    return
+  }
+  // Caption with the file name under media so several attachments stay distinguishable
+  const cap = document.createElement('a')
+  cap.className = 'msg-file-caption'
+  cap.href = f.url
+  cap.target = '_blank'
+  cap.download = name
+  cap.textContent = name
+  bubble.appendChild(cap)
+}
 
 // Whitelist-based HTML sanitizer for assistant messages. Claude Code is
 // generally trusted but a crafted prompt could still slip <script> or
@@ -1334,33 +1410,21 @@ function handleServerMsg(raw) {
       break
 
     case 'msg': {
-      // live-web-chat wire: { type:'msg', id, from, text, ts, replyTo, file }
+      // live-web-chat wire: { type:'msg', id, from, text, ts, replyTo, file, files }
+      // `files` is the full attachment list; `file` (= files[0]) is the legacy field.
       const who = msg.from === 'user' ? 'user' : 'claude'
       // Server may prefix transcribed voice text with 🎤 — strip it so addMessage's
       // voice-source branch can prepend its own, avoiding a double-mic bubble.
       const isVoice = msg.text?.startsWith('🎤')
       const cleanText = isVoice ? msg.text.replace(/^🎤\s*/, '') : msg.text
       const row = addMessage({ from: who, text: cleanText, source: isVoice ? 'voice' : 'text' })
-      // Handle file attachment
-      if (msg.file) {
+      // Handle file attachments (all of them, not just the first)
+      const attachments = Array.isArray(msg.files) && msg.files.length
+        ? msg.files
+        : (msg.file ? [msg.file] : [])
+      if (attachments.length) {
         const bubble = row.querySelector('.msg-bubble')
-        if (isImageName(msg.file.name)) {
-          const img = document.createElement('img')
-          img.className = 'msg-img'
-          img.src = msg.file.url
-          img.alt = escHtml(msg.file.name)
-          img.loading = 'lazy'
-          img.onclick = () => window.open(img.src, '_blank')
-          bubble.appendChild(img)
-        } else {
-          const a = document.createElement('a')
-          a.className = 'msg-file-link'
-          a.href = msg.file.url
-          a.target = '_blank'
-          a.download = msg.file.name
-          a.textContent = '📄 ' + msg.file.name
-          bubble.appendChild(a)
-        }
+        for (const f of attachments) appendAttachment(bubble, f)
       }
       if (msg.id) msgs[msg.id] = row
       break

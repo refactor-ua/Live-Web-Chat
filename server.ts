@@ -67,7 +67,8 @@ function mime(ext: string) {
     '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
     '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
     '.pdf': 'application/pdf', '.txt': 'text/plain',
-    '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
+    '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg',
+    '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
   }
   return m[ext] ?? 'application/octet-stream'
 }
@@ -249,21 +250,22 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const files = (args.files as string[] | undefined) ?? []
         const ids: string[] = []
 
-        // Copy first file to outbox for serving
+        // Copy every attachment to outbox for serving. Wire carries the full
+        // list in `files`; `file` (= first) is kept for older UI builds.
         mkdirSync(OUTBOX_DIR, { recursive: true })
-        let file: { url: string; name: string } | undefined
-        if (files[0]) {
-          const f = files[0]
+        const attachments: Array<{ url: string; name: string; size: number }> = []
+        for (const f of files) {
           const st = statSync(f)
           if (st.size > 50 * 1024 * 1024) throw new Error(`file too large: ${f}`)
           const ext = extname(f).toLowerCase()
           const out = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`
           copyFileSync(f, join(OUTBOX_DIR, out))
-          file = { url: `/files/${out}`, name: basename(f) }
+          attachments.push({ url: `/files/${out}`, name: basename(f), size: st.size })
         }
+        const file = attachments[0]
 
         const id = nextId()
-        broadcast({ type: 'msg', id, from: 'assistant', text, ts: Date.now(), replyTo, file })
+        broadcast({ type: 'msg', id, from: 'assistant', text, ts: Date.now(), replyTo, file, files: attachments })
         ids.push(id)
 
         // In on_completion mode, activate mic after reply
@@ -531,8 +533,30 @@ try {
 
         if (!filePath) return new Response('404', { status: 404 })
         try {
-          return new Response(readFileSync(filePath), {
-            headers: { 'content-type': mime(extname(f).toLowerCase()) },
+          // Serve with Range support so <video>/<audio> can seek instead of
+          // downloading the whole file before playback.
+          const total = statSync(filePath).size
+          const type = mime(extname(f).toLowerCase())
+          const range = req.headers.get('range')
+          const m = range && /^bytes=(\d*)-(\d*)$/.exec(range)
+          if (m && (m[1] || m[2])) {
+            const start = m[1] ? Number(m[1]) : Math.max(0, total - Number(m[2]))
+            const end = m[1] && m[2] ? Math.min(Number(m[2]), total - 1) : total - 1
+            if (start > end || start >= total) {
+              return new Response(null, { status: 416, headers: { 'content-range': `bytes */${total}` } })
+            }
+            return new Response(Bun.file(filePath).slice(start, end + 1), {
+              status: 206,
+              headers: {
+                'content-type': type,
+                'content-range': `bytes ${start}-${end}/${total}`,
+                'content-length': String(end - start + 1),
+                'accept-ranges': 'bytes',
+              },
+            })
+          }
+          return new Response(Bun.file(filePath), {
+            headers: { 'content-type': type, 'content-length': String(total), 'accept-ranges': 'bytes' },
           })
         } catch {
           return new Response('404', { status: 404 })
