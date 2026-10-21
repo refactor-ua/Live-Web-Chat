@@ -237,6 +237,35 @@
     padding: 0;
     border-radius: 0;
   }
+  /* ── Copy buttons for code blocks ── */
+  .msg-bubble .pre-wrap { position: relative; margin: 6px 0; }
+  .msg-bubble .pre-wrap > pre { margin: 0; padding-right: 84px; }
+  .msg-bubble .copy-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    padding: 2px 8px;
+    font: inherit;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--hint);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    opacity: 0.75;
+    transition: opacity .15s, color .15s, border-color .15s;
+  }
+  .msg-bubble .pre-wrap:hover .copy-btn, .msg-bubble .copy-btn:focus-visible { opacity: 1; }
+  .msg-bubble .copy-btn:hover { color: var(--text); border-color: var(--primary-light); }
+  .msg-bubble .copy-btn.copied, .msg-bubble code.copied { color: var(--success); border-color: var(--success); opacity: 1; }
+  .msg-bubble code:not(pre code) { cursor: copy; }
+  .msg-bubble code.copied:not(pre code) { outline: 1px solid var(--success); }
+  @media (hover: none) { .msg-bubble .copy-btn { opacity: 1; } }
+  @media (prefers-color-scheme: light) {
+    .msg-bubble .copy-btn { background: #fff; color: #475569; border-color: rgba(0,0,0,0.2); }
+  }
+
   .msg-bubble ul, .msg-bubble ol {
     margin: 4px 0 4px 20px;
     padding: 0;
@@ -1984,6 +2013,85 @@ function stopVAD() {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeSettings()
 })
+
+// ─── Copy buttons for <pre>, click-to-copy for inline <code> ──────────────────
+
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    // writeText can hang (focus/permission quirks): fall back to execCommand after 500 ms
+    return new Promise((resolve) => {
+      let done = false
+      const finish = (fn) => { if (done) return; done = true; try { fn && fn() } catch {} resolve() }
+      const timer = setTimeout(() => finish(() => legacyCopy(text)), 500)
+      navigator.clipboard.writeText(text).then(
+        () => { clearTimeout(timer); finish() },
+        () => { clearTimeout(timer); finish(() => legacyCopy(text)) },
+      )
+    })
+  }
+  return Promise.resolve(legacyCopy(text))
+}
+
+function legacyCopy(text) {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.setAttribute('readonly', '')
+  ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none'
+  document.body.appendChild(ta)
+  ta.select()
+  try { document.execCommand('copy') } finally { ta.remove() }
+}
+
+function decorateCodeBlocks(root) {
+  const pres = root.nodeType === 1 ? root.querySelectorAll('.msg-bubble pre') : []
+  for (const pre of pres) {
+    if (pre.parentElement && pre.parentElement.classList.contains('pre-wrap')) continue
+    const wrap = document.createElement('div')
+    wrap.className = 'pre-wrap'
+    pre.parentNode.insertBefore(wrap, pre)
+    wrap.appendChild(pre)
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'copy-btn'
+    btn.textContent = 'Копіювати'
+    wrap.appendChild(btn)
+  }
+}
+
+function flashCopied(el, label) {
+  const orig = el.dataset.origLabel ?? el.textContent
+  if (label) { el.dataset.origLabel = orig; el.textContent = label }
+  el.classList.add('copied')
+  clearTimeout(el._copyTimer)
+  el._copyTimer = setTimeout(() => {
+    el.classList.remove('copied')
+    if (label) { el.textContent = orig; delete el.dataset.origLabel }
+  }, 1500)
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target
+  if (!(t instanceof Element)) return
+  const btn = t.closest('.copy-btn')
+  if (btn) {
+    const pre = btn.parentElement.querySelector('pre')
+    if (pre) copyText(pre.textContent).then(() => flashCopied(btn, 'Скопійовано ✓'))
+    return
+  }
+  const code = t.closest('.msg-bubble code')
+  if (code && !code.closest('pre')) {
+    if (String(window.getSelection()).length > 0) return // don't hijack manual selection
+    copyText(code.textContent).then(() => flashCopied(code))
+  }
+})
+
+// Messages arrive and get edited at any time: observe instead of one-off pass.
+new MutationObserver((muts) => {
+  for (const m of muts) for (const n of m.addedNodes) {
+    if (n.nodeType === 1) decorateCodeBlocks(n.matches('.msg-bubble pre') ? n.parentNode : n)
+  }
+}).observe(document.body, { childList: true, subtree: true })
+decorateCodeBlocks(document.body)
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
