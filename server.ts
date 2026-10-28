@@ -24,9 +24,20 @@ import type { Config } from './config.ts'
 import { transcribe } from './whisper.ts'
 import { synthesize } from './tts.ts'
 import { saveFile, getFilePath } from './files.ts'
+import { detectChannelMode } from './channel-mode.ts'
 
 loadEnv()
 ensureDirs()
+
+// Плагін може бути увімкнений глобально, тоді сервер стартує в кожній сесії.
+// Порт веб-чату бере (і звільняє від завислих інстансів) лише сесія, запущена
+// з --channels / --dangerously-load-development-channels для цього плагіна.
+// Решта сесій — тихий no-op: MCP-з'єднання є, інструментів і HTTP немає.
+const channelMode = detectChannelMode()
+const IS_CHANNEL = channelMode.channel
+process.stderr.write(
+  `live-web-chat: ${IS_CHANNEL ? 'channel mode' : 'not a channel session, staying idle (no HTTP, no tools)'} — ${channelMode.reason}\n`,
+)
 
 // Last-resort safety net
 process.on('unhandledRejection', err => {
@@ -94,7 +105,7 @@ const voiceSkillPresent = hasVoiceSkill()
 
 const mcp = new Server(
   { name: 'live-web-chat', version: '2.0.0' },
-  {
+  IS_CHANNEL ? {
     capabilities: {
       tools: {},
       experimental: {
@@ -126,7 +137,7 @@ const mcp = new Server(
           ]),
       `UI is at http://localhost:${PORT}.`,
     ].join('\n'),
-  },
+  } : { capabilities: { tools: {} } },
 )
 
 // ─── Channel notification helper ─────────────────────────────────────────────
@@ -200,7 +211,7 @@ mcp.setNotificationHandler(
 
 // ─── Tools ───────────────────────────────────────────────────────────────────
 
-mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
+mcp.setRequestHandler(ListToolsRequestSchema, async () => (!IS_CHANNEL ? { tools: [] } : {
   tools: [
     {
       name: 'reply',
@@ -241,6 +252,12 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
 }))
 
 mcp.setRequestHandler(CallToolRequestSchema, async req => {
+  if (!IS_CHANNEL) {
+    return {
+      content: [{ type: 'text', text: 'live-web-chat is not loaded as a channel in this session' }],
+      isError: true,
+    }
+  }
   const args = (req.params.arguments ?? {}) as Record<string, unknown>
   try {
     switch (req.params.name) {
@@ -502,8 +519,7 @@ async function ensurePortFree(port: number): Promise<void> {
     process.stderr.write(`live-web-chat: failed to free port: ${err}\n`)
   }
 }
-await ensurePortFree(PORT)
-
+function startHttp(): void {
 try {
   Bun.serve({
     port: PORT,
@@ -599,6 +615,12 @@ try {
 } catch (err) {
   process.stderr.write(`live-web-chat: HTTP server failed (port ${PORT}): ${err}\n`)
   process.stderr.write(`live-web-chat: continuing MCP-only mode (no Web UI)\n`)
+}
+}
+
+if (IS_CHANNEL) {
+  await ensurePortFree(PORT)
+  startHttp()
 }
 
 await mcp.connect(new StdioServerTransport())

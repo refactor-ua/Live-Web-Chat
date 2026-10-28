@@ -144,6 +144,12 @@ claude --dangerously-load-development-channels plugin:live-web-chat@refactor-ua
 ## Configuration
 
 - **Port** — `LIVE_WEB_CHAT_PORT=9000` in `.env` (default `8787`).
+- **Channel-only mode** — the web UI port is bound only by a session started
+  with `--channels` / `--dangerously-load-development-channels` listing this
+  plugin. If the plugin is enabled globally, every other session starts the
+  server idle (no HTTP, no tools) and never touches the port. Detection reads
+  the parent `claude` process command line; override with
+  `LIVE_WEB_CHAT_MODE=channel` (force) or `off` (default `auto`).
 - **Runtime config** — `~/.claude/channels/live-web-chat/config.json` (created
   on first run; UI exposes mode, TTS voice/speed, language, etc.).
 - **Listen mode** — `PTT` (push-to-talk) / `Confirmation` / `On-Completion` /
@@ -185,8 +191,8 @@ The active provider's API key (`OPENAI_API_KEY` by default, `GROQ_API_KEY` if
 dir.
 
 **Port 8787 busy.**
-The server auto-kills stale Claude/bun instances on that port; if it can't,
-set `LIVE_WEB_CHAT_PORT` to something else.
+A channel session auto-kills stale Claude/bun instances on that port (non-channel
+sessions never do); if it can't, set `LIVE_WEB_CHAT_PORT` to something else.
 
 **MCP server didn't load.**
 You forgot `--dangerously-load-development-channels plugin:live-web-chat@refactor-ua`.
